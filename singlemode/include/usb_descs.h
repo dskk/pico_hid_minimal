@@ -1,0 +1,148 @@
+#include <stdint.h>
+
+#ifndef __cplusplus
+typedef uint16_t char16_t;
+#endif
+
+#define DEV_DESC_LEN         (18)
+#define CFG_DESC_LEN         (9)
+#define ITF_DESC_LEN         (9)
+#define HID_DESC_LEN         (9)
+#define EP_DESC_LEN          (7)
+
+#define DESC_TYPE_DEV        (1)
+#define DESC_TYPE_CFG        (2)
+#define DESC_TYPE_STR        (3)
+#define DESC_TYPE_ITF        (4)
+#define DESC_TYPE_EP         (5)
+#define DESC_TYPE_HID        (0x21)
+#define DESC_TYPE_HID_REPORT (0x22)
+
+#define STR_DESC_LANGID      ((const uint8_t[]){ 4, 3, 0x09, 0x04 })
+#define SERIAL_STR           "Build " __DATE__ " " __TIME__
+
+#define MAKE_SIZED_DESC(...) \
+    { .len = sizeof((uint8_t[]){__VA_ARGS__}), \
+      .data = (uint8_t[]){__VA_ARGS__} }
+
+#define MAKE_STR_DESC(str) \
+    (const uint8_t *)&(const struct __attribute__((packed)) { \
+        uint8_t len; uint8_t type; char16_t chars[sizeof(u"" str) / 2 - 1]; \
+    }){ sizeof(u"" str), 3, u"" str }
+
+#define MAKE_STR_DESC_ARRAY(...) \
+    { .len  = sizeof((const uint8_t* const[]){__VA_ARGS__}) / sizeof(const uint8_t*), \
+      .data = (const uint8_t* const[]){__VA_ARGS__} }
+
+// String Descriptor 配列に対応する構造体
+typedef struct {
+    uint8_t len;
+    const uint8_t* const* data;
+} str_desc_array_t;
+
+// Device Descriptor などの各 Descriptor に対応する構造体
+// サイズとデータを組にして持つ。MAKE_SIZED_DESC マクロで作成する
+typedef struct {
+    uint16_t len;
+    uint8_t* data;
+} sized_desc_t;
+
+// 必要な Descriptor の情報をすべて束ねた構造体
+typedef struct {
+    const sized_desc_t dev;
+    const sized_desc_t cfg;
+    const sized_desc_t report;
+    const str_desc_array_t strings;
+} usb_descs_t;
+
+static const usb_descs_t usb_descs = {
+    .dev = MAKE_SIZED_DESC(
+        DEV_DESC_LEN,                     // bLength
+        DESC_TYPE_DEV,                    // bDescriptorType    Type 1 -> Device Descriptor
+        0x10, 0x01,                       // bcdUSB             USB Version Number (BCD) = 0x0110 -> USB1.1
+        // (Class, SubClass, Protocol) = (0x00, 0x00, 0x00) -> Use class information in the Interface Descriptors
+        0x00,                             // bDeviceClass
+        0x00,                             // bDeviceSubClass
+        0x00,                             // bDeviceProtocol
+        64,                               // bMaxPacketSize0    EP0 Packet Size = 64 Byte
+        0xFE, 0xCA,                       // idVendor           VID = 0xcafe
+        0x14, 0x40,                       // idProduct          PID = 0x4014
+        0x00, 0x01,                       // bcdDevice          Device Version Number (BCD) = 0x0100 -> V1.00
+        0x01,                             // iManufacturer      Manufacturer String Descriptor = .strings[1]
+        0x02,                             // iProduct           Product String Descriptor = .strings[2]
+        0x03,                             // iSerialNumber      Serial Number String Descriptor = .strings[3]
+        0x01                              // bNumConfigurations Number of Configuration = 1
+    ),
+
+    .cfg = MAKE_SIZED_DESC(
+        // Configuration Descriptor
+        CFG_DESC_LEN,                     // bLength
+        DESC_TYPE_CFG,                    // bDescriptorType     Type 2 -> Configuration Descriptor
+        0x29, 0x00,                       // wTotalLength        Descriptor Length Including IF/EP Descriptor
+        1,                                // bNumInterface       Number of Interface Descriptor = 1
+        1,                                // bConfigurationValue Configuration Number = 1
+        0,                                // iConfiguration      Configuration String Descriptor = None
+        0x80,                             // bmAttributes        Bus Powered, No Remote Wakeup
+        50,                               // bMaxPower           Max Current = 100 mA (50 * 2)
+        ITF_DESC_LEN,                     // bLength
+        DESC_TYPE_ITF,                    // bDescriptorType     Type 4 -> Interface Descriptor
+        0,                                // bInterfaceNumber    Interface ID 0
+        0,                                // bAlternateSetting   No Alternate Setting
+        2,                                // bNumEndpoints       Number of Endpoints (excluding EP0)
+        // (Class, SubClass, Protocol) = (0x03, 0x00, 0x00) -> HID Class, Not for Boot
+        3,                                // bInterfaceClass
+        0,                                // bInterfaceSubClass
+        0,                                // bInterfaceProtocol
+        0,                                // iInterface          Interface String Descriptor = None
+        // HID Descriptor
+        HID_DESC_LEN,                     // bLength
+        DESC_TYPE_HID,                    // bDescriptorType     Type 0x21 -> HID Descriptor
+        0x11, 0x01,                       // bcdHID              HID Version Number (BCD) = 0x0111 -> V1.11
+        0,                                // bCountryCode        None
+        1,                                // bNumDescriptors     Number of Dependent Descriptors  = 1
+                                          // Info of Dependent Descriptors Follows
+        DESC_TYPE_HID_REPORT,             // bDescriptorType     Type 0x22 -> Report Descriptor
+        0x22, 0x00,                       // wDescriptorLength   Report Descriptor Length
+        // Endpoint Descriptor
+        EP_DESC_LEN,                      // bLength
+        DESC_TYPE_EP,                     // bDescriptorType     Type 5 -> Endpoint Descriptor
+        0x01,                             // bEndPointAddress    EP1, OUT
+        0x03,                             // bmAttributes        Interrupt Transfer
+        64, 0,                            // bMaxPacketSize      Max Packet Size = 64 Byte
+        10,                               // bInterval           Interval = 10 ms
+        // Endpoint Descriptor
+        EP_DESC_LEN,                      // bLength
+        DESC_TYPE_EP,                     // bDescriptorType     Type 5 -> Endpoint Descriptor
+        0x81,                             // bEndPointAddress    EP1, IN
+        0x03,                             // bmAttributes        Interrupt Transfer
+        64, 0,                            // bMaxPacketSize      Max Packet Size = 64 Byte
+        10                                // bInterval           Interval = 10 ms
+    ),
+
+    .report = MAKE_SIZED_DESC(
+        0x06, 0x00, 0xFF,  // Usage Page (Vendor Defined 0xFF00)
+        0x09, 0x01,        // Usage (0x01)
+        0xA1, 0x01,        // Collection (Application)
+        0x09, 0x02,        //   Usage (0x02)
+        0x15, 0x00,        //   Logical Minimum (0)
+        0x26, 0xFF, 0x00,  //   Logical Maximum (255)
+        0x75, 0x08,        //   Report Size (8)
+        0x95, 0x40,        //   Report Count (64)
+        0x81, 0x02,        //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
+        0x09, 0x03,        //   Usage (0x03)
+        0x15, 0x00,        //   Logical Minimum (0)
+        0x26, 0xFF, 0x00,  //   Logical Maximum (255)
+        0x75, 0x08,        //   Report Size (8)
+        0x95, 0x40,        //   Report Count (64)
+        0x91, 0x02,        //   Output (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+        0xC0               // End Collection
+    ),
+
+    .strings = MAKE_STR_DESC_ARRAY(
+        STR_DESC_LANGID,              // [0] Language ID
+        MAKE_STR_DESC("Pico"),        // [1] Manufacturer
+        MAKE_STR_DESC("Minimal HID"), // [2] Product
+        MAKE_STR_DESC(SERIAL_STR)     // [3] Serial
+    )
+};
+
